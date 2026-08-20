@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Evenement logistique</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js"></script>
+  <style>
+    :root {
+      --rouge: #B42125;
+      --sombre: #252827;
+      --creme: #FFFEE6;
+      --gris: #6b6b6b;
+      --bord: #d8d8d0;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      font-family: Calibri, "Segoe UI", Arial, sans-serif;
+      font-size: 14px; color: var(--sombre); background: var(--creme);
+    }
+    .wrap { padding: 12px 14px 20px; }
+    header {
+      background: var(--sombre); color: #fff;
+      padding: 10px 14px; margin: 0;
+      border-bottom: 3px solid var(--rouge);
+    }
+    header h1 {
+      font-family: "Arial Black", Arial, sans-serif;
+      font-size: 14px; letter-spacing: .5px; margin: 0; text-transform: uppercase;
+    }
+    header p { margin: 2px 0 0; font-size: 11px; color: #bdbdbd; }
+
+    .bloc { border: 1px solid var(--rouge); background: #fff; padding: 10px 12px; margin-bottom: 12px; }
+    .bloc h2 {
+      font-family: "Arial Black", Arial, sans-serif;
+      font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+      margin: 0 0 8px; color: var(--rouge);
+    }
+    label[for] { display: block; font-size: 11px; color: var(--gris); margin: 8px 0 3px; text-transform: uppercase; letter-spacing: .3px; }
+    input[type=text], input[type=date], input[type=time], select {
+      width: 100%; padding: 6px 8px; border: 1px solid var(--bord);
+      font-family: Calibri, Arial, sans-serif; font-size: 14px; background: #fff; color: var(--sombre);
+    }
+    input:focus, select:focus { outline: 2px solid var(--rouge); outline-offset: -2px; }
+    .duo { display: flex; gap: 8px; }
+    .duo > div { flex: 1; }
+
+    .cand { display: block; border: 1px solid var(--bord); padding: 8px 10px; margin-bottom: 6px; cursor: pointer; background: #fff; }
+    .cand:hover { border-color: var(--rouge); }
+    .cand.sel { border-color: var(--rouge); border-width: 2px; padding: 7px 9px; }
+    .cand input { margin-right: 6px; vertical-align: top; }
+    .cand .d { font-weight: bold; }
+    .cand .x { display: block; margin: 4px 0 0 20px; font-size: 12px; color: var(--gris); font-style: italic; }
+    .cand .n { display: block; margin: 3px 0 0 20px; font-size: 11px; color: var(--rouge); }
+
+    .badge { display: inline-block; background: var(--sombre); color: #fff; font-size: 11px; padding: 2px 7px; margin: 0 4px 4px 0; }
+    .badge.r { background: var(--rouge); }
+
+    button {
+      width: 100%; padding: 11px; border: 0; background: var(--rouge); color: #fff;
+      font-family: "Arial Black", Arial, sans-serif; font-size: 13px; text-transform: uppercase;
+      letter-spacing: .5px; cursor: pointer;
+    }
+    button:hover { background: #8f1a1d; }
+    button.sec {
+      background: #fff; color: var(--sombre); border: 1px solid var(--bord);
+      font-family: Calibri, Arial, sans-serif; font-size: 12px; text-transform: none;
+      letter-spacing: 0; padding: 7px; margin-top: 8px;
+    }
+    button.sec:hover { background: #f1f1e8; border-color: var(--rouge); }
+    button:disabled { background: #bdbdbd; cursor: default; }
+
+    .alerte { border-left: 4px solid var(--rouge); background: #fff; padding: 8px 10px; font-size: 12px; margin-bottom: 12px; }
+    .info { font-size: 11px; color: var(--gris); margin-top: 6px; }
+    .ok { border-left: 4px solid #2e7d32; background: #fff; padding: 8px 10px; font-size: 12px; margin-bottom: 12px; }
+    #chargement { padding: 20px 14px; font-size: 13px; color: var(--gris); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Evenement logistique</h1>
+    <p>SOEXIMEX &mdash; verifiez, puis creez le rendez-vous</p>
+  </header>
+
+  <div id="chargement">Lecture du mail...</div>
+
+  <div class="wrap" id="contenu" style="display:none">
+    <div id="messages"></div>
+
+    <div class="bloc" id="blocCand">
+      <h2>Date detectee dans le mail</h2>
+      <div id="candidats"></div>
+      <button class="sec" id="btnFil" style="display:none">Chercher aussi dans le fil cite en dessous</button>
+    </div>
+
+    <div class="bloc">
+      <h2>Rendez-vous a creer</h2>
+      <label for="titre">Objet</label>
+      <input type="text" id="titre" />
+
+      <div class="duo">
+        <div>
+          <label for="date">Date</label>
+          <input type="date" id="date" />
+        </div>
+        <div>
+          <label for="heure">Heure</label>
+          <input type="time" id="heure" />
+        </div>
+      </div>
+
+      <div class="duo">
+        <div>
+          <label for="duree">Duree</label>
+          <select id="duree">
+            <option value="30">30 min</option>
+            <option value="60" selected>1 h</option>
+            <option value="120">2 h</option>
+            <option value="240">4 h</option>
+            <option value="1440">Journee entiere</option>
+          </select>
+        </div>
+        <div>
+          <label for="type">Type</label>
+          <select id="type"></select>
+        </div>
+      </div>
+
+      <label for="lieu">Lieu</label>
+      <input type="text" id="lieu" placeholder="port, quai, entrepot, transitaire..." />
+
+      <label for="ref">Reference</label>
+      <input type="text" id="ref" placeholder="ex. RO00415" />
+    </div>
+
+    <button id="btnCreer">Creer le rendez-vous</button>
+    <div class="info">Le formulaire Outlook s'ouvre pre-rempli : rien n'est enregistre avant votre validation.</div>
+  </div>
+
+  <script src="detect.js"></script>
+  <script src="taskpane.js"></script>
+</body>
+</html>

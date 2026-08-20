@@ -1,0 +1,236 @@
+/* ============================================================
+   SOEXIMEX - Evenement logistique
+   taskpane.js : liaison Office <-> moteur de detection <-> formulaire
+   ============================================================ */
+
+(function () {
+  "use strict";
+
+  var etat = { objet: "", corps: "", analyse: null, filInclus: false };
+
+  Office.onReady(function (info) {
+    if (info.host !== Office.HostType.Outlook) { return; }
+    lireEtAnalyser(false);
+
+    document.getElementById("btnCreer").addEventListener("click", creerRdv);
+    document.getElementById("btnFil").addEventListener("click", function () {
+      etat.filInclus = true;
+      analyserEtAfficher();
+    });
+  });
+
+  /* ---------- Lecture du mail ---------- */
+
+  function lireEtAnalyser() {
+    var item = Office.context.mailbox.item;
+    if (!item) { erreurFatale("Aucun mail ouvert."); return; }
+
+    etat.objet = item.subject || "";
+    item.body.getAsync(Office.CoercionType.Text, function (res) {
+      if (res.status !== Office.AsyncResultStatus.Succeeded) {
+        erreurFatale("Lecture du corps du mail impossible : " + (res.error ? res.error.message : "erreur inconnue"));
+        return;
+      }
+      etat.corps = res.value || "";
+      analyserEtAfficher();
+      document.getElementById("chargement").style.display = "none";
+      document.getElementById("contenu").style.display = "block";
+    });
+  }
+
+  function erreurFatale(msg) {
+    var c = document.getElementById("chargement");
+    c.innerHTML = '<div class="alerte">' + echapper(msg) + "</div>";
+  }
+
+  /* ---------- Analyse et rendu ---------- */
+
+  function analyserEtAfficher() {
+    var a = LOGI.analyser(etat.objet, etat.corps, new Date(), { inclureFil: etat.filInclus });
+    etat.analyse = a;
+
+    remplirMessages(a);
+    remplirCandidats(a);
+    remplirTypes(a);
+
+    document.getElementById("lieu").value = a.lieu || "";
+    document.getElementById("ref").value = a.references.length ? a.references[0] : "";
+
+    if (a.candidats.length) {
+      appliquerCandidat(0);
+    } else {
+      var d = new Date();
+      d.setDate(d.getDate() + 1);
+      document.getElementById("date").value = isoDate(d);
+      document.getElementById("heure").value = pad(LOGI.HEURE_DEFAUT) + ":00";
+      majTitre();
+    }
+  }
+
+  function remplirMessages(a) {
+    var out = [];
+
+    if (!a.typePrincipal) {
+      out.push('<div class="alerte">Aucun mot-cle logistique reconnu dans ce mail. Choisissez le type a la main si besoin.</div>');
+    }
+
+    if (!a.candidats.length) {
+      if (a.filTronque && !a.filInclus) {
+        out.push('<div class="alerte">Aucune date exploitable dans le message du dessus. Le mail contient un fil cite : vous pouvez elargir la recherche.</div>');
+      } else {
+        out.push('<div class="alerte">Aucune date exploitable trouvee. Saisissez-la a la main.</div>');
+      }
+    } else if (a.candidats.length > 1) {
+      out.push('<div class="alerte">' + a.candidats.length + ' dates possibles dans ce mail. Verifiez celle qui correspond a l\'evenement.</div>');
+    }
+
+    if (a.filInclus) {
+      out.push('<div class="alerte">Recherche elargie au fil cite : les dates ci-dessous peuvent etre perimees.</div>');
+    }
+
+    if (a.references.length > 1) {
+      out.push('<div class="alerte">Plusieurs references detectees : ' + a.references.map(echapper).join(", ") + ". Corrigez si besoin.</div>");
+    }
+
+    document.getElementById("messages").innerHTML = out.join("");
+
+    var btn = document.getElementById("btnFil");
+    btn.style.display = (a.filTronque && !a.filInclus) ? "block" : "none";
+  }
+
+  function remplirCandidats(a) {
+    var box = document.getElementById("candidats");
+    if (!a.candidats.length) {
+      box.innerHTML = '<div class="info">Rien de detecte. Renseignez la date dans le bloc ci-dessous.</div>';
+      return;
+    }
+    var html = a.candidats.map(function (c, i) {
+      var notes = [];
+      if (c.note) { notes.push(c.note); }
+      if (!c.anneeExplicite) { notes.push("Annee absente du mail, deduite."); }
+      return '<label class="cand' + (i === 0 ? " sel" : "") + '" data-i="' + i + '">' +
+        '<input type="radio" name="cand" value="' + i + '"' + (i === 0 ? " checked" : "") + ' />' +
+        '<span class="d">' + libelleDate(c.debut) + "</span>" +
+        '<span class="x">' + echapper(c.extrait) + "</span>" +
+        (notes.length ? '<span class="n">' + echapper(notes.join(" ")) + "</span>" : "") +
+        "</label>";
+    }).join("");
+    box.innerHTML = html;
+
+    Array.prototype.forEach.call(box.querySelectorAll('input[name="cand"]'), function (r) {
+      r.addEventListener("change", function () {
+        Array.prototype.forEach.call(box.querySelectorAll(".cand"), function (l) { l.classList.remove("sel"); });
+        r.parentNode.classList.add("sel");
+        appliquerCandidat(parseInt(r.value, 10));
+      });
+    });
+  }
+
+  function remplirTypes(a) {
+    var sel = document.getElementById("type");
+    sel.innerHTML = "";
+    var liste = LOGI.TYPES.map(function (t) { return t.libelle; });
+    liste.forEach(function (lib) {
+      var o = document.createElement("option");
+      o.value = lib; o.textContent = lib;
+      if (lib === a.typePrincipal) { o.selected = true; }
+      sel.appendChild(o);
+    });
+    var autre = document.createElement("option");
+    autre.value = "Evenement logistique"; autre.textContent = "Autre / non precise";
+    if (!a.typePrincipal) { autre.selected = true; }
+    sel.appendChild(autre);
+    sel.addEventListener("change", majTitre);
+    document.getElementById("ref").addEventListener("input", majTitre);
+  }
+
+  function appliquerCandidat(i) {
+    var c = etat.analyse.candidats[i];
+    if (!c) { return; }
+    document.getElementById("date").value = isoDate(c.debut);
+    document.getElementById("heure").value = pad(c.debut.getHours()) + ":" + pad(c.debut.getMinutes());
+    majTitre();
+  }
+
+  function majTitre() {
+    var type = document.getElementById("type").value;
+    var ref = document.getElementById("ref").value.trim();
+    document.getElementById("titre").value = ref ? type + " " + ref : type;
+  }
+
+  /* ---------- Creation du rendez-vous ---------- */
+
+  function creerRdv() {
+    var dateStr = document.getElementById("date").value;
+    var heureStr = document.getElementById("heure").value || "09:00";
+    if (!dateStr) {
+      alerter("Renseignez une date avant de creer le rendez-vous.");
+      return;
+    }
+
+    var p = dateStr.split("-");
+    var hm = heureStr.split(":");
+    var debut = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10),
+                         parseInt(hm[0], 10), parseInt(hm[1], 10), 0, 0);
+    if (isNaN(debut.getTime())) { alerter("Date ou heure invalide."); return; }
+
+    var duree = parseInt(document.getElementById("duree").value, 10);
+    var journee = duree === 1440;
+    var fin = new Date(debut.getTime() + (journee ? 1440 : duree) * 60000);
+    if (journee) { debut.setHours(0, 0, 0, 0); fin = new Date(debut.getTime() + 1440 * 60000); }
+
+    var titre = document.getElementById("titre").value.trim() || "Evenement logistique";
+    var lieu = document.getElementById("lieu").value.trim();
+    var ref = document.getElementById("ref").value.trim();
+
+    var corpsRdv = [
+      "Cree depuis le mail : " + etat.objet,
+      "",
+      "Reference : " + (ref || "non renseignee"),
+      "Type : " + document.getElementById("type").value,
+      lieu ? "Lieu : " + lieu : null,
+      "",
+      "-- Complement Evenement logistique / SOEXIMEX --"
+    ].filter(function (l) { return l !== null; }).join("\n");
+
+    var params = {
+      requiredAttendees: [],
+      subject: titre.slice(0, 255),
+      start: debut,
+      end: fin,
+      body: corpsRdv
+    };
+    if (lieu) { params.location = lieu.slice(0, 255); }
+
+    try {
+      Office.context.mailbox.displayNewAppointmentForm(params);
+      succes("Formulaire de rendez-vous ouvert. Enregistrez-le dans Outlook pour le confirmer.");
+    } catch (e) {
+      alerter("Ouverture du formulaire impossible : " + (e && e.message ? e.message : "erreur inconnue"));
+    }
+  }
+
+  /* ---------- Utilitaires ---------- */
+
+  function alerter(msg) {
+    document.getElementById("messages").innerHTML = '<div class="alerte">' + echapper(msg) + "</div>";
+  }
+  function succes(msg) {
+    document.getElementById("messages").innerHTML = '<div class="ok">' + echapper(msg) + "</div>";
+  }
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  function isoDate(d) { return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+
+  var JOURS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
+  var MOIS_L = ["janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout", "septembre", "octobre", "novembre", "decembre"];
+  function libelleDate(d) {
+    return JOURS[d.getDay()] + " " + d.getDate() + " " + MOIS_L[d.getMonth()] + " " + d.getFullYear() +
+           " a " + pad(d.getHours()) + "h" + pad(d.getMinutes());
+  }
+  function echapper(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+})();
