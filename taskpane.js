@@ -202,12 +202,106 @@
     };
     if (lieu) { params.location = lieu.slice(0, 255); }
 
+    var mb = Office.context.mailbox;
+
+    /* La variante asynchrone (Mailbox 1.9) est la seule fiable sur le nouveau Outlook
+       et sur Outlook Web ; la version synchrone peut echouer sans lever d'erreur.
+       Dans tous les cas on propose un repli .ics, car l'ouverture du formulaire
+       passe par une fenetre que le navigateur peut bloquer. */
+    var asyncDispo = false;
     try {
-      Office.context.mailbox.displayNewAppointmentForm(params);
-      succes("Formulaire de rendez-vous ouvert. Enregistrez-le dans Outlook pour le confirmer.");
-    } catch (e) {
-      alerter("Ouverture du formulaire impossible : " + (e && e.message ? e.message : "erreur inconnue"));
+      asyncDispo = typeof mb.displayNewAppointmentFormAsync === "function" &&
+                   Office.context.requirements &&
+                   Office.context.requirements.isSetSupported("Mailbox", "1.9");
+    } catch (e) { asyncDispo = false; }
+
+    if (asyncDispo) {
+      mb.displayNewAppointmentFormAsync(params, function (res) {
+        if (res && res.status === Office.AsyncResultStatus.Succeeded) {
+          succesAvecIcs("Formulaire de rendez-vous ouvert. Enregistrez-le dans Outlook pour le confirmer.", params);
+        } else {
+          alerterAvecIcs("Outlook a refuse l'ouverture du formulaire" +
+            (res && res.error && res.error.message ? " (" + res.error.message + ")" : "") + ".", params);
+        }
+      });
+      return;
     }
+
+    try {
+      mb.displayNewAppointmentForm(params);
+      succesAvecIcs("Formulaire de rendez-vous ouvert. Enregistrez-le dans Outlook pour le confirmer.", params);
+    } catch (e) {
+      alerterAvecIcs("Ouverture du formulaire impossible : " +
+        (e && e.message ? e.message : "erreur inconnue") + ".", params);
+    }
+  }
+
+  /* ---------- Repli : invitation .ics telechargeable ---------- */
+
+  function horodatageIcs(d, utc) {
+    function p(n) { return (n < 10 ? "0" : "") + n; }
+    if (utc) {
+      return d.getUTCFullYear() + p(d.getUTCMonth() + 1) + p(d.getUTCDate()) + "T" +
+             p(d.getUTCHours()) + p(d.getUTCMinutes()) + "00Z";
+    }
+    // heure locale flottante : Outlook l'interprete dans le fuseau du poste
+    return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + "T" +
+           p(d.getHours()) + p(d.getMinutes()) + "00";
+  }
+
+  function echapperIcs(s) {
+    return String(s || "").replace(/\\/g, "\\\\").replace(/;/g, "\\;")
+                          .replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+  }
+
+  function construireIcs(params) {
+    var uid = "logi-" + horodatageIcs(params.start, true) + "-" +
+              Math.abs(String(params.subject).split("").reduce(function (a, c) {
+                return ((a << 5) - a + c.charCodeAt(0)) | 0;
+              }, 0)) + "@soeximex";
+    var lignes = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//SOEXIMEX//Evenement logistique//FR",
+      "CALSCALE:GREGORIAN",
+      "METHOD:PUBLISH",
+      "BEGIN:VEVENT",
+      "UID:" + uid,
+      "DTSTAMP:" + horodatageIcs(new Date(), true),
+      "DTSTART:" + horodatageIcs(params.start, false),
+      "DTEND:" + horodatageIcs(params.end, false),
+      "SUMMARY:" + echapperIcs(params.subject)
+    ];
+    if (params.location) { lignes.push("LOCATION:" + echapperIcs(params.location)); }
+    lignes.push("DESCRIPTION:" + echapperIcs(params.body));
+    lignes.push("END:VEVENT", "END:VCALENDAR");
+    return lignes.join("\r\n") + "\r\n";
+  }
+
+  function lienIcs(params) {
+    try {
+      var blob = new Blob([construireIcs(params)], { type: "text/calendar;charset=utf-8" });
+      var url = URL.createObjectURL(blob);
+      var nom = String(params.subject).replace(/[^A-Za-z0-9 _-]/g, "").trim().replace(/\s+/g, "_") || "evenement";
+      return '<a class="lien-ics" href="' + url + '" download="' + nom + '.ics">' +
+             "Telecharger l'invitation (.ics)</a>";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function succesAvecIcs(msg, params) {
+    document.getElementById("messages").innerHTML =
+      '<div class="ok">' + echapper(msg) +
+      '<div class="repli">Aucune fenetre ne s\'est ouverte ? Votre navigateur bloque les fenetres surgissantes. ' +
+      lienIcs(params) + " puis ouvrez le fichier.</div></div>";
+  }
+
+  function alerterAvecIcs(msg, params) {
+    document.getElementById("messages").innerHTML =
+      '<div class="alerte">' + echapper(msg) +
+      '<div class="repli">Solution de contournement : ' + lienIcs(params) +
+      " puis ouvrez le fichier, Outlook creera le rendez-vous.</div></div>";
   }
 
   /* ---------- Utilitaires ---------- */
