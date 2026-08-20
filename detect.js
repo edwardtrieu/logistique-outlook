@@ -206,21 +206,23 @@
     var fin = Math.min(masque.length, indexDate + longueurDate + FENETRE_APRES);
     var zone = masque.slice(debut, fin);
 
-    // Une plage : 8h-18h, 14h00 a 16h00, entre 9h et 11h
-    var rxPlage = /\b(\d{1,2})\s*(?:h|:)\s*(\d{2})?\s*(?:-|a|à|et|jusqu'?a|jusqu'?à)\s*(\d{1,2})\s*(?:h|:)\s*(\d{2})?/i;
-    var mp = zone.match(rxPlage);
-    if (mp) {
-      var h1 = parseInt(mp[1], 10), h2 = parseInt(mp[3], 10);
-      if (h1 >= 0 && h1 <= 23 && h2 >= 0 && h2 <= 23) {
-        if (h2 - h1 > 0 && h2 - h1 <= AMPLITUDE_PLAGE_MAX_H) {
-          return { h: h1, min: mp[2] ? parseInt(mp[2], 10) : 0, source: "plage",
-                   note: "Plage " + h1 + "h-" + h2 + "h detectee, debut retenu." };
-        }
-        // amplitude trop large = horaire d'ouverture, on ignore
-        return { h: HEURE_DEFAUT, min: 0, source: "defaut",
-                 note: "Amplitude " + h1 + "h-" + h2 + "h ignoree (horaire d'ouverture)." };
+    /* Les plages sont retirees de la zone AVANT toute autre recherche, pour ne pas
+       masquer une heure annoncee situee plus loin ("... a 14h30 ... joignables 8h-18h").
+       Une plage courte reste exploitable en repli ; une plage large est un horaire
+       d'ouverture et n'est jamais retenue. */
+    var plagesCourtes = [];
+    var notePlage = "";
+    var rxPlage = /\b(\d{1,2})\s*(?:h|:)\s*(\d{2})?\s*(?:-|a|à|et|jusqu'?a|jusqu'?à)\s*(\d{1,2})\s*(?:h|:)\s*(\d{2})?/gi;
+    zone = zone.replace(rxPlage, function (texte, h1, min1, h2) {
+      var a = parseInt(h1, 10), b = parseInt(h2, 10);
+      if (isNaN(a) || isNaN(b) || a < 0 || a > 23 || b < 0 || b > 23) { return texte; }
+      if (b - a > 0 && b - a <= AMPLITUDE_PLAGE_MAX_H) {
+        plagesCourtes.push({ h: a, min: min1 ? parseInt(min1, 10) : 0, borne: a + "h-" + b + "h" });
+      } else {
+        notePlage = "Amplitude " + a + "h-" + b + "h ignoree (horaire d'ouverture).";
       }
-    }
+      return new Array(texte.length + 1).join("#");
+    });
 
     // Heure precise annoncee par un declencheur : a 14h30, vers 15h, avant 10h
     var rxAnnoncee = /(?:\b(?:a|à|vers|avant|d[eè]s|apr[eè]s|au plus tard(?: a| à)?|rdv|rendez-vous)\s+)(\d{1,2})\s*(?:h|:)\s*(\d{2})?/i;
@@ -229,8 +231,14 @@
       var ha = parseInt(ma[1], 10);
       if (ha >= 0 && ha <= 23) {
         var mina = ma[2] ? parseInt(ma[2], 10) : 0;
-        if (mina >= 0 && mina <= 59) { return { h: ha, min: mina, source: "annoncee", note: "" }; }
+        if (mina >= 0 && mina <= 59) { return { h: ha, min: mina, source: "annoncee", note: notePlage }; }
       }
+    }
+
+    // Repli : plage courte, on retient la borne basse
+    if (plagesCourtes.length) {
+      return { h: plagesCourtes[0].h, min: plagesCourtes[0].min, source: "plage",
+               note: "Plage " + plagesCourtes[0].borne + " detectee, debut retenu." };
     }
 
     // Heure nue dans la fenetre : 14h30 / 14:30 (minutes obligatoires pour ':')
