@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+           xsi:type="MailApp">
+
+  <!-- GUID unique de ce complement. Ne le reutilisez pas pour un autre complement. -->
+  <Id>72ff7eaf-7a96-4e81-94f2-659e3eb16b8d</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>SOEXIMEX</ProviderName>
+  <DefaultLocale>fr-FR</DefaultLocale>
+  <DisplayName DefaultValue="Evenement logistique"/>
+  <Description DefaultValue="Propose un rendez-vous Outlook pre-rempli a partir de la date logistique reperee dans le mail : expedition, livraison, reception, enlevement, dedouanement, chargement."/>
+  <IconUrl DefaultValue="https://edwardtrieu.github.io/logistique-outlook/icon-64.png"/>
+  <HighResolutionIconUrl DefaultValue="https://edwardtrieu.github.io/logistique-outlook/icon-128.png"/>
+  <SupportUrl DefaultValue="https://www.soeximex.com"/>
+
+  <AppDomains>
+    <AppDomain>https://edwardtrieu.github.io/logistique-outlook</AppDomain>
+  </AppDomains>
+
+  <Hosts>
+    <Host Name="Mailbox"/>
+  </Hosts>
+
+  <Requirements>
+    <Sets DefaultMinVersion="1.5">
+      <Set Name="Mailbox" MinVersion="1.5"/>
+    </Sets>
+  </Requirements>
+
+  <!-- Compatibilite descendante : clients qui ignorent VersionOverrides. -->
+  <FormSettings>
+    <Form xsi:type="ItemRead">
+      <DesktopSettings>
+        <SourceLocation DefaultValue="https://edwardtrieu.github.io/logistique-outlook/taskpane.html"/>
+        <RequestedHeight>400</RequestedHeight>
+      </DesktopSettings>
+    </Form>
+  </FormSettings>
+
+  <!-- ReadItem suffit : lecture du mail ouvert + ouverture d'un formulaire de RDV.
+       Ne pas passer a ReadWriteMailbox, cela declenche un consentement admin lourd. -->
+  <Permissions>ReadItem</Permissions>
+
+  <Rule xsi:type="RuleCollection" Mode="Or">
+    <Rule xsi:type="ItemIs" ItemType="Message" FormType="Read"/>
+  </Rule>
+
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/mailappversionoverrides"
+                    xsi:type="VersionOverridesV1_0">
+    <Requirements>
+      <bt:Sets DefaultMinVersion="1.5">
+        <bt:Set Name="Mailbox"/>
+      </bt:Sets>
+    </Requirements>
+
+    <Hosts>
+      <Host xsi:type="MailHost">
+        <DesktopFormFactor>
+
+          <ExtensionPoint xsi:type="MessageReadCommandSurface">
+            <OfficeTab id="TabDefault">
+              <Group id="grpLogistique">
+                <Label resid="grpLabel"/>
+                <Control xsi:type="Button" id="btnEvenementLogistique">
+                  <Label resid="btnLabel"/>
+                  <Supertip>
+                    <Title resid="btnLabel"/>
+                    <Description resid="btnTip"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="icon16"/>
+                    <bt:Image size="32" resid="icon32"/>
+                    <bt:Image size="80" resid="icon80"/>
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <SourceLocation resid="taskpaneUrl"/>
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+
+    <Resources>
+      <bt:Images>
+        <bt:Image id="icon16" DefaultValue="https://edwardtrieu.github.io/logistique-outlook/icon-16.png"/>
+        <bt:Image id="icon32" DefaultValue="https://edwardtrieu.github.io/logistique-outlook/icon-32.png"/>
+        <bt:Image id="icon80" DefaultValue="https://edwardtrieu.github.io/logistique-outlook/icon-80.png"/>
+      </bt:Images>
+      <bt:Urls>
+        <bt:Url id="taskpaneUrl" DefaultValue="https://edwardtrieu.github.io/logistique-outlook/taskpane.html"/>
+      </bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="grpLabel" DefaultValue="Logistique"/>
+        <bt:String id="btnLabel" DefaultValue="Creer l'evenement"/>
+      </bt:ShortStrings>
+      <bt:LongStrings>
+        <bt:String id="btnTip" DefaultValue="Repere la date d'expedition, livraison, reception ou enlevement dans le mail et ouvre un rendez-vous pre-rempli, que vous validez."/>
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+</OfficeApp>
