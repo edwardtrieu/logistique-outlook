@@ -36,6 +36,20 @@
     "decembre": 11, "décembre": 11, "dec": 11, "déc": 11
   };
 
+  var JOURS_SEMAINE = "lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|lun|mar|mer|jeu|ven|sam|dim";
+
+  // Moments de journee : convention interne, signalee a l'utilisateur.
+  var MOMENTS = [
+    /* Ordre imperatif : du plus long au plus court. "midi" est une sous-chaine de
+       "apres-midi" et le tiret fait frontiere de mot, donc les composes passent d'abord. */
+    { motifs: ["fin de matinee", "fin de matinée"], h: 11, libelle: "fin de matinee" },
+    { motifs: ["debut d'apres-midi", "début d'après-midi", "debut d apres-midi"], h: 14, libelle: "debut d'apres-midi" },
+    { motifs: ["apres-midi", "après-midi", "apres midi", "après midi"], h: 14, libelle: "apres-midi" },
+    { motifs: ["fin de journee", "fin de journée", "soir"], h: 16, libelle: "fin de journee" },
+    { motifs: ["matin"],                            h: 9,  libelle: "matin" },
+    { motifs: ["midi"],                             h: 12, libelle: "midi" }
+  ];
+
   var HEURE_DEFAUT = 9;
   var DUREE_DEFAUT_MIN = 60;
   var AMPLITUDE_PLAGE_MAX_H = 4;   // au-dela, c'est un horaire d'ouverture, pas un RDV
@@ -80,11 +94,41 @@
     return texte.slice(0, fin);
   }
 
+  /* Mail transfere : le contenu utile est SOUS le bloc d'en-tete
+     (De: / Envoye: / A: / Objet:). Couper avant ce bloc ne laisse rien a dater,
+     et la ligne "Envoye :" porte une date d'expedition qui n'est pas l'evenement.
+     On saute donc l'en-tete et on date ce qui suit. */
+  function zoneDatable(complet) {
+    /* Discriminant : un mail TRANSFERE commence par le bloc d'en-tete, alors qu'un
+       fil de REPONSE commence par le texte de la reponse et cite l'en-tete plus bas.
+       Dans le second cas les dates citees sont perimees et ne doivent pas etre datees
+       (l'utilisateur garde le bouton d'elargissement au fil). */
+    var debutEnTete = /^\s*(?:De|From|Exp[eé]diteur)[ \t]*:/i.test(complet.slice(0, 200));
+    if (!debutEnTete) {
+      return { texte: messageDuDessus(complet), transfert: false };
+    }
+
+    // Dernier "Objet :" / "Subject:" de la zone d'en-tete
+    var enTete = complet.slice(0, 2000);
+    var rx = /(?:^|\n)[ \t]*(?:Objet|Subject)[ \t]*:[^\n]*\n/gi;
+    var m, dernier = null;
+    while ((m = rx.exec(enTete)) !== null) { dernier = m; }
+    if (!dernier) {
+      return { texte: complet, transfert: true };
+    }
+
+    var apres = complet.slice(dernier.index + dernier[0].length);
+    return { texte: messageDuDessus("\n" + apres).slice(1), transfert: true };
+  }
+
   /* ---------- 2. Masquage des faux positifs ----------
      On remplace les zones piegeuses par des '#' de meme longueur :
      les positions restent valides pour l'affichage de l'extrait. */
 
   var PIEGES = [
+    // Ceinture de securite : une ligne d'en-tete "Envoye :" porte la date d'expedition
+    // du mail, jamais celle de l'evenement. Neutralisee meme si le decoupage a echoue.
+    /(?:^|\n)[ \t]*(?:Envoy[eé]|Sent)[ \t]*:[^\n]*/gi,
     // Telephone / fax annonce par un libelle
     /(?:t[eé]l|tel|mob|portable|fax|gsm|phone|whatsapp)\s*\.?\s*:?\s*\+?[\d\s.\-()]{8,}/gi,
     // Numero francais 0X XX XX XX XX (points, tirets, espaces)
@@ -152,8 +196,11 @@
       if (d) { out.push({ date: d, index: m.index, longueur: m[0].length, format: "numerique", anneeExplicite: true }); }
     }
 
-    // c) Numerique court sans annee : 24/08 (uniquement precede d'un declencheur)
-    var rxCourt = /\b(?:le|du|au|d[eè]s|avant|apr[eè]s|pour)\s+(\d{1,2})\s*[\/\.]\s*(\d{1,2})(?!\s*[\/\.\-]\s*\d)/gi;
+    // c) Numerique court sans annee : 24/08, precede d'un declencheur ou d'un jour
+    //    de semaine ("livre lundi 24/08 matin" est la formulation la plus courante
+    //    des transporteurs).
+    var rxCourt = new RegExp("\\b(?:le|du|au|d[eè]s|avant|apr[eè]s|pour|" + JOURS_SEMAINE +
+                             ")\\.?\\s+(\\d{1,2})\\s*[\\/\\.]\\s*(\\d{1,2})(?!\\s*[\\/\\.\\-]\\s*\\d)", "gi");
     while ((m = rxCourt.exec(masque)) !== null) {
       var res = resoudreAnnee(parseInt(m[2], 10) - 1, parseInt(m[1], 10), aujourdhui);
       if (res) { out.push({ date: res, index: m.index, longueur: m[0].length, format: "numerique-court", anneeExplicite: false }); }
@@ -249,6 +296,19 @@
       var minn = mn[2] !== undefined ? parseInt(mn[2], 10) : (mn[3] !== undefined ? parseInt(mn[3], 10) : 0);
       if (hn >= 0 && hn <= 23 && minn >= 0 && minn <= 59) {
         return { h: hn, min: minn, source: "proximite", note: "Heure lue a proximite de la date, a verifier." };
+      }
+    }
+
+    // Moment de journee : "lundi 24/08 matin", "livraison apres-midi"
+    var zoneMin = zone.toLowerCase();
+    for (var i = 0; i < MOMENTS.length; i++) {
+      for (var j = 0; j < MOMENTS[i].motifs.length; j++) {
+        var mot = MOMENTS[i].motifs[j];
+        var rxMot = new RegExp("\\b" + mot.replace(/[-']/g, "\\$&") + "\\b", "i");
+        if (rxMot.test(zoneMin)) {
+          return { h: MOMENTS[i].h, min: 0, source: "moment",
+                   note: "Mail indique \"" + MOMENTS[i].libelle + "\", " + MOMENTS[i].h + "h retenu par convention." };
+        }
       }
     }
 
@@ -357,7 +417,8 @@
     var opt = options || {};
     objet = normaliser(objet);
     var complet = normaliser(corpsComplet);
-    var haut = messageDuDessus(complet);
+    var zone = zoneDatable(complet);
+    var haut = zone.texte;
 
     // Le type peut venir de tout le fil, la date seulement du message du dessus + objet.
     var types = trouverTypes(objet, complet);
